@@ -10,6 +10,8 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 
 import admin_panel as ap
+import loop_checker
+import annihilator
 
 bot = Bot(c.token)
 storage = MemoryStorage()
@@ -466,4 +468,6 @@ async def message_handler(message: types.Message, state: FSMContext):
 
 
 if __name__ == "__main__":
+    dp.loop.create_task(loop_checker.loop_checker())
+    dp.loop.create_task(annihilator.loop_annihilator())
     executor.start_polling(dp, skip_updates=True)

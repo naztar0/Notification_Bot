@@ -9,8 +9,8 @@ from aiogram import Bot, Dispatcher, utils
 bot = Bot(c.token)
 dp = Dispatcher(bot)
 
-select_query = "SELECT * FROM users WHERE flag=0 LIMIT 50 OFFSET (%s)"
-rows_count_query = "SELECT TABLE_ROWS FROM TABLES WHERE TABLE_SCHEMA = " + c.db
+select_query = "SELECT * FROM users WHERE flag=0 LIMIT 50 OFFSET %s"
+rows_count_query = f"SELECT TABLE_ROWS FROM TABLES WHERE TABLE_SCHEMA = '{c.db}'"
 flag_set_query = "UPDATE users SET flag=1 WHERE ID=(%s)"
 delete_query = "DELETE FROM users WHERE ID=(%s)"
 
@@ -24,6 +24,7 @@ async def send_notification(user_id, text, media):
     except utils.exceptions.BotBlocked: pass
     except utils.exceptions.UserDeactivated: pass
     except utils.exceptions.ChatNotFound: pass
+    except utils.exceptions.BadRequest: pass
 
 
 async def loop_checker():
@@ -35,10 +36,11 @@ async def loop_checker():
         cursor.execute(rows_count_query)
         rows = cursor.fetchone()[0]
         conn.close()
+        print(rows)
 
         conn = mysql.connector.connect(host=c.host, user=c.user, passwd=c.password, database=c.db)
         cursor = conn.cursor(buffered=True)
-        for offset in range(rows, step=50):
+        for offset in range(0, rows, 50):
             cursor.execute(select_query, [offset])
             results = cursor.fetchall()
             for user in results:
@@ -50,7 +52,7 @@ async def loop_checker():
                         await send_notification(user_id, text, media)
                         cursor.execute(delete_query, [ID])
                 else:
-                    time = [time.seconds // 3600 + (time.seconds // 60) % 60]
+                    time = [time.seconds // 3600, (time.seconds // 60) % 60]
                     if time[0] == now.hour and time[1] == now.minute:
                         if Type == 2:
                             await send_notification(user_id, text, media)
