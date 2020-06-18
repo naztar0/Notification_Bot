@@ -9,10 +9,10 @@ from aiogram import Bot, Dispatcher, utils
 bot = Bot(c.token)
 dp = Dispatcher(bot)
 
-select_query = "SELECT * FROM users WHERE flag=0 LIMIT 50 OFFSET %s"
-rows_count_query = f"SELECT TABLE_ROWS FROM TABLES WHERE TABLE_SCHEMA = '{c.db}'"
-flag_set_query = "UPDATE users SET flag=1 WHERE ID=(%s)"
-delete_query = "DELETE FROM users WHERE ID=(%s)"
+select_query = "SELECT * FROM notifications WHERE flag=0 LIMIT 50 OFFSET %s"
+rows_count_query = f"SELECT TABLE_ROWS FROM TABLES WHERE TABLE_SCHEMA = '{c.db}' AND TABLE_NAME = 'notifications'"
+flag_set_query = "UPDATE notifications SET flag=1 WHERE ID=(%s)"
+delete_query = "DELETE FROM notifications WHERE ID=(%s)"
 
 
 async def send_notification(user_id, text, media):

@@ -1,15 +1,14 @@
 #!/usr/bin/env python
 import constants as c
 import mysql.connector
-import re
 import datetime
 
-from aiogram import Bot, Dispatcher, executor, types  # , utils
+from aiogram import Bot, Dispatcher, executor, types, utils
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 
-import admin_panel as ap
+import admin_panel as admin
 import loop_checker
 import annihilator
 
@@ -24,7 +23,8 @@ class Form(StatesGroup):
     subtype = State()
     regularity = State()
     Time = State()
-    DateTime = State()
+    DateTime_time = State()
+    DateTime_date = State()
 
 
 class Delete(StatesGroup): num = State()
@@ -73,9 +73,9 @@ def input_to_database(user, data):
     if type(reg) == set or type(reg) == list:
         reg = str(list(reg))
 
-    inputQuery = "INSERT INTO users (user_id, type, regularity, time, datetime, text, media) " \
+    inputQuery = "INSERT INTO notifications (user_id, type, regularity, time, datetime, text, media) " \
                  "VALUES (%s, %s, %s, %s, %s, %s, %s)"
-    updateQuery = "UPDATE users SET type=(%s), regularity=(%s), time=(%s), datetime=(%s) WHERE ID=(%s)"
+    updateQuery = "UPDATE notifications SET type=(%s), regularity=(%s), time=(%s), datetime=(%s) WHERE ID=(%s)"
     conn = mysql.connector.connect(host=c.host, user=c.user, passwd=c.password, database=c.db)
     cursor = conn.cursor(buffered=True)
     try:
@@ -129,7 +129,7 @@ def view_message(result, one=False):
 async def view_all_messages(message):
     conn = mysql.connector.connect(host=c.host, user=c.user, passwd=c.password, database=c.db)
     cursor = conn.cursor(buffered=True)
-    selectQuery = "SELECT ID, text, media, type, regularity, time, datetime FROM users WHERE user_id=(%s)"
+    selectQuery = "SELECT ID, text, media, type, regularity, time, datetime FROM notifications WHERE user_id=(%s)"
     cursor.execute(selectQuery, [message.chat.id])
     result = cursor.fetchall()
     conn.close()
@@ -154,7 +154,7 @@ def select_message(message):
     num = message.text[2:]
     conn = mysql.connector.connect(host=c.host, user=c.user, passwd=c.password, database=c.db)
     cursor = conn.cursor(buffered=True)
-    selectQuery = "SELECT ID, text, media, type, regularity, time, datetime FROM users WHERE user_id=(%s) AND ID=(%s)"
+    selectQuery = "SELECT ID, text, media, type, regularity, time, datetime FROM notifications WHERE user_id=(%s) AND ID=(%s)"
     cursor.executemany(selectQuery, [(message.chat.id, num)])
     result = cursor.fetchall()
     conn.close()
@@ -200,12 +200,22 @@ async def message_handler(message: types.Message):
     # сброс всех пользовательских уведомлений, если он были
     conn = mysql.connector.connect(host=c.host, user=c.user, passwd=c.password, database=c.db)
     cursor = conn.cursor(buffered=True)
-    deleteQuery = "DELETE FROM users WHERE user_id=(%s)"
-    cursor.execute(deleteQuery, [message.chat.id])
+    existsQuery = "SELECT EXISTS (SELECT ID FROM users WHERE user_id=(%s))"
+    insertQuery = "INSERT INTO users (user_id, username) VALUES (%s, %s)"
+    deleteQuery = "DELETE FROM notifications WHERE user_id=(%s)"
+    cursor.execute(existsQuery, [message.chat.id])
+    exists = cursor.fetchone()[0]
+    if exists == 1:
+        cursor.execute(deleteQuery, [message.chat.id])
+    else:
+        cursor.executemany(insertQuery, [(message.chat.id, message.chat.username)])
     conn.commit()
     conn.close()
-
-    await message.answer("message_1")
+    try:
+        await message.answer("message_1")
+    except utils.exceptions.BotBlocked: return
+    except utils.exceptions.UserDeactivated: return
+    except utils.exceptions.ChatNotFound: return
     await message.answer("message_2", reply_markup=main_key())
 
 
@@ -259,7 +269,7 @@ async def choose_type(message: types.Message, state: FSMContext):
         await Form.next()  # время
         await Form.next()  # дата и время
         key.add(types.KeyboardButton(cancel_button))
-        await message.answer("Введите дату и время отправки сообщения\n\n_Например_: `2020.09.21 09:00`", parse_mode="Markdown", reply_markup=key)
+        await message.answer("Введите время отправки сообщения в формате `чч:мм`\n\n_Например_: `09:00`", parse_mode="Markdown", reply_markup=key)
     else:
         key.add(types.KeyboardButton(subtype_buttons[0]))
         key.add(types.KeyboardButton(subtype_buttons[1]))
@@ -281,7 +291,7 @@ async def choose_subtype(message: types.Message, state: FSMContext):
     if message.text == subtype_buttons[0]:
         await Form.next()  # время
         key.add(types.KeyboardButton(cancel_button))
-        await message.answer("Введите время отправки сообщения\n_Например:_ `12:00`", reply_markup=key, parse_mode="Markdown")
+        await message.answer("Введите время отправки сообщения в формате `чч:мм`\n\n_Например_: `09:00`", parse_mode="Markdown", reply_markup=key)
     elif message.text == subtype_buttons[1]:
         key.add(days[0], days[1])
         key.add(days[2], days[3])
@@ -344,16 +354,16 @@ async def choose_regularity(message: types.Message, state: FSMContext):
 @dp.message_handler(content_types=['text'], state=Form.Time)
 async def choose_regularity(message: types.Message, state: FSMContext):
     if await cancel(message, state): return
-    text = message.text
 
+    text = message.text
     try:
         nums = [int(text.split(':')[x]) for x in range(2)]
         tm = datetime.time(nums[0], nums[1])
     except ValueError:
-        await message.reply("Неправильный ввод!")
+        await message.reply("Время недействительно!")
         return
     except IndexError:
-        await message.reply("Неправильный ввод!")
+        await message.reply("Неправильный формат! Проверьте вводимые данные и попробуйте еще раз")
         return
 
     async with state.proxy() as data:
@@ -364,19 +374,45 @@ async def choose_regularity(message: types.Message, state: FSMContext):
     await message.answer("Напоминание успешно сохранено!", reply_markup=main_key())
 
 
-@dp.message_handler(content_types=['text'], state=Form.DateTime)
+@dp.message_handler(content_types=['text'], state=Form.DateTime_time)
 async def choose_regularity(message: types.Message, state: FSMContext):
     if await cancel(message, state): return
 
     text = message.text
-    if not re.search(r"^(202\d\.[01]\d\.[0-3]\d [012]\d:[0-6]\d)$", text):
-        await message.reply("Неправильный формат! Проверьте вводимые данные и попробуйте еще раз.")
-        return
-    year, month, day, hour, minute = int(text[:4]), int(text[5:7]), int(text[8:10]), int(text[11:13]), int(text[14:16])
     try:
-        dt = datetime.datetime(year, month, day, hour, minute)
+        nums = [int(text.split(':')[x]) for x in range(2)]
+        tm = datetime.time(nums[0], nums[1])
     except ValueError:
-        await message.reply("Дата или время недействительны! Проверьте вводимые данные и попробуйте еще раз.")
+        await message.reply("Время недействительно!")
+        return
+    except IndexError:
+        await message.reply("Неправильный формат! Проверьте вводимые данные и попробуйте еще раз")
+        return
+
+    async with state.proxy() as data:
+        data['datetime'] = tm
+    await Form.next()
+
+    key = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    key.add(types.KeyboardButton(cancel_button))
+    await message.answer("Введите дату отправки сообщения в формате `дд.мм.гггг`\n\n_Например_: `17.09.2020`", parse_mode="Markdown", reply_markup=key)
+
+
+@dp.message_handler(content_types=['text'], state=Form.DateTime_date)
+async def choose_regularity(message: types.Message, state: FSMContext):
+    if await cancel(message, state): return
+
+    text = message.text
+    async with state.proxy() as data:
+        tm = data['datetime']
+    try:
+        nums = [int(text.split('.')[x]) for x in range(3)]
+        dt = datetime.datetime(nums[2], nums[1], nums[0], tm.hour, tm.minute)
+    except ValueError:
+        await message.reply("Дата недействительна!")
+        return
+    except IndexError:
+        await message.reply("Неправильный формат! Проверьте вводимые данные и попробуйте еще раз")
         return
 
     async with state.proxy() as data:
@@ -399,7 +435,7 @@ async def choose_regularity(message: types.Message, state: FSMContext):
         data = data['num']
     await state.finish()
 
-    deleteQuery = "DELETE FROM users WHERE ID=(%s)"
+    deleteQuery = "DELETE FROM notifications WHERE ID=(%s)"
     conn = mysql.connector.connect(host=c.host, user=c.user, passwd=c.password, database=c.db)
     cursor = conn.cursor(buffered=True)
     cursor.execute(deleteQuery, [data])
@@ -412,37 +448,47 @@ async def choose_regularity(message: types.Message, state: FSMContext):
 @dp.message_handler(commands=['admin'])
 async def message_handler(message: types.Message):
     if message.chat.id == c.admin:
-        await message.answer("/text\n/sticker\n/photo\n/video\n/poll")
+        key = types.ReplyKeyboardMarkup()
+        key.add(admin.buttons_funcs[0], admin.buttons_funcs[1], admin.buttons_funcs[2], admin.buttons_funcs[3], admin.buttons_funcs[4])
+        key.add(cancel_button)
+        await admin.Admin.func.set()
+        await message.answer("Выберите что отправить пользователям", reply_markup=key)
 
 
-@dp.message_handler(commands=['text'])
+@dp.message_handler(content_types=['text'], state=admin.Admin.func)
 async def message_handler(message: types.Message, state: FSMContext):
-    if message.chat.id == c.admin:
-        await ap.admin_choose_type(message, "текст", state)
+    if message.text not in admin.buttons_funcs:
+        await state.finish()
+        await message.answer("Отменено!", reply_markup=main_key())
+        return
+    await admin.choose_type(message, state)
 
 
-@dp.message_handler(commands=['sticker'])
+@dp.message_handler(content_types=['text'], state=admin.Admin.type)
 async def message_handler(message: types.Message, state: FSMContext):
-    if message.chat.id == c.admin:
-        await ap.admin_choose_type(message, "стикер", state)
+    if message.text not in admin.buttons_types:
+        await state.finish()
+        await message.answer("Отменено!", reply_markup=main_key())
+        return
+    await admin.choose_users_min_count(message, state)
 
 
-@dp.message_handler(commands=['photo'])
+@dp.message_handler(content_types=['text'], state=admin.Admin.min_count)
 async def message_handler(message: types.Message, state: FSMContext):
-    if message.chat.id == c.admin:
-        await ap.admin_choose_type(message, "фото", state)
+    if not str(message.text).isdigit():
+        await state.finish()
+        await message.answer("Отменено!", reply_markup=main_key())
+        return
+    await admin.choose_users_min_count(message, state)
 
 
-@dp.message_handler(commands=['video'])
+@dp.message_handler(state=admin.Admin.data)
 async def message_handler(message: types.Message, state: FSMContext):
-    if message.chat.id == c.admin:
-        await ap.admin_choose_type(message, "видео", state)
-
-
-@dp.message_handler(commands=['poll'])
-async def message_handler(message: types.Message, state: FSMContext):
-    if message.chat.id == c.admin:
-        await ap.admin_choose_type(message, "опрос", state)
+    if message.text == cancel_button:
+        await state.finish()
+        await message.answer("Отменено!", reply_markup=main_key())
+        return
+    await admin.choose_func(message, state)
 
 
 # ОБРАБОТКА ВСЕХ ОСТАЛЬНЫХ СООБЩЕНИЙ

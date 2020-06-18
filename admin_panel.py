@@ -12,71 +12,106 @@ storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
 
-class Form_admin(StatesGroup):
-    func_elem_role = State()
+class Admin(StatesGroup):
+    func = State()
+    type = State()
+    min_count = State()
     data = State()
 
 
+cancel_button = "❌ Отмена"
+buttons_funcs = ("Текст", "Стикер", "Фото", "Видео", "Опрос")
+buttons_types = ("Тип 1", "Тип 2", "Тип 3", "Тип 4", "Все типы с огр.", "Все пользователи")
+
+
 # выбор типа
-async def admin_choose_type(message, elem, state):
-    await Form_admin.func_elem_role.set()
+async def choose_type(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
-        data['elem_role'] = [elem, None]
-    choices = "/mom_with_children\n/remote_admin\n/unemployed\n/self_employed\n/remote_top\n/remote_student\n/worker\n/ALL"
-    await message.answer("Выбери группу, которой нужно отправить:\n\n" + choices)
+        data['func'] = message.text
+    await Admin.next()
+    key = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    key.add(buttons_types[0], buttons_types[1])
+    key.add(buttons_types[2], buttons_types[3])
+    key.add(buttons_types[4], buttons_types[5])
+    key.add(cancel_button)
+    await message.answer("Выберите пользователей\n\n"
+                         "Тип 1 - Одноразовое\nТип 2 - Ежедневное\nТип 3 - По дням недели\nТип 4 - По числам месяца", reply_markup=key)
 
 
-@dp.message_handler(state=Form_admin.func_elem_role)
-async def admin_get_role(message: types.Message, state: FSMContext):
-    role = str(message.text)[1:]
+async def choose_users_min_count(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
-        elem = data['func_elem_role'][0]
-        data['func_elem_role'][1] = role
-    if role not in {"mom_with_children", "remote_admin", "unemployed", "self_employed", "remote_top", "remote_student", "worker", "ALL"}:
-        await message.answer("Ошибка ввода!")
-        await state.finish()
-        return
-    await Form_admin.next()
-    await message.answer(f"Отправь {elem} для рассылки")
+        data['type'] = message.text
+    await Admin.next()
+    key = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    key.add(cancel_button)
+    if message.text == buttons_types[5]:
+        await Admin.next()
+        await message.answer(f"Отправьте {data['func']} для рассылки")
+    else:
+        await message.answer("Введите минимальное количество сообщений, которые соответствуют: " + message.text)
 
 
-def get_users(role):
+async def do_func(message: types.Message, state: FSMContext):
+    async with state.proxy() as data:
+        data['min'] = int(message.text)
+    await Admin.next()
+    await message.answer(f"Отправьте {data['func']} для рассылки")
+
+
+def get_users(users_type, min_count):
     conn = mysql.connector.connect(host=c.host, user=c.user, passwd=c.password, database=c.db)
     cursor = conn.cursor(buffered=True)
-    if role == "ALL":
-        selectQuery = "SELECT user_id FROM users"
-        cursor.execute(selectQuery)
-    else:
-        selectQuery = "SELECT user_id FROM users WHERE role=(%s)"
-        cursor.execute(selectQuery, [role])
-    users = cursor.fetchall()
+    select_all_users_query = "SELECT user_id FROM users"
+    cursor.execute(select_all_users_query)
+    all_users = cursor.fetchall()
+    if min_count:
+        if users_type:
+            selectQuery = "SELECT ID FROM notifications WHERE user_id=(%s) AND type=(%s) HAVING COUNT(ID) >= %s"
+            for user in all_users:
+                cursor.executemany(selectQuery, [(user, users_type, min_count)])
+                match = cursor.fetchone()
+                if not match:
+                    all_users.remove(user)
+        else:
+            selectQuery = "SELECT ID FROM notifications WHERE user_id=(%s) HAVING COUNT(ID) >= %s"
+            for user in all_users:
+                cursor.executemany(selectQuery, [(user, min_count)])
+                match = cursor.fetchone()
+                if not match:
+                    all_users.remove(user)
     conn.close()
-    return users
+    return all_users
 
 
-@dp.message_handler(state=Form_admin.data)
-async def admin_choose_func(message: types.Message, state: FSMContext):
+async def choose_func(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
-        func = data['func_elem_role'][0]
-        role = data['func_elem_role'][1]
+        func = data['func']
+        users_type = data['type']
+        min_count = data['min']
     await state.finish()
 
-    if func == "текст":
-        await admin_send_text(message, role)
-    elif func == "стикер":
-        await admin_send_sticker(message, role)
-    elif func == "фото":
-        await admin_send_photo(message, role)
-    elif func == "видео":
-        await admin_send_video(message, role)
-    elif func == "опрос":
-        await admin_send_poll(message, role)
+    if users_type == buttons_types[4] or users_type == buttons_types[5]:
+        users_type = None
+    if users_type == buttons_types[5]:
+        min_count = None
+
+    users = get_users(users_type, min_count)
+
+    if func == buttons_funcs[0]:
+        await admin_send_text(message, users)
+    elif func == buttons_funcs[1]:
+        await admin_send_sticker(message, users)
+    elif func == buttons_funcs[2]:
+        await admin_send_photo(message, users)
+    elif func == buttons_funcs[3]:
+        await admin_send_video(message, users)
+    elif func == buttons_funcs[4]:
+        await admin_send_poll(message, users)
 
 
-async def admin_send_text(message, role):
+async def admin_send_text(message, users):
     try: text = message.text
     except AttributeError: return
-    users = get_users(role)
     i = 0
     for user in users:
         try:
@@ -86,10 +121,9 @@ async def admin_send_text(message, role):
     await message.answer("Количество пользователей, получивших сообщение: " + str(i))
 
 
-async def admin_send_sticker(message, role):
+async def admin_send_sticker(message, users):
     try: fileID = message.sticker.file_id
     except AttributeError: return
-    users = get_users(role)
     i = 0
     for user in users:
         try:
@@ -99,11 +133,10 @@ async def admin_send_sticker(message, role):
     await message.answer("Количество пользователей, получивших сообщение: " + str(i))
 
 
-async def admin_send_photo(message, role):
+async def admin_send_photo(message, users):
     try: fileID = message.photo[-1].file_id
     except AttributeError: return
     except TypeError: return
-    users = get_users(role)
     i = 0
     for user in users:
         try:
@@ -113,10 +146,9 @@ async def admin_send_photo(message, role):
     await message.answer("Количество пользователей, получивших сообщение: " + str(i))
 
 
-async def admin_send_video(message, role):
+async def admin_send_video(message, users):
     try: fileID = message.video.file_id
     except AttributeError: return
-    users = get_users(role)
     i = 0
     for user in users:
         try:
@@ -126,8 +158,7 @@ async def admin_send_video(message, role):
     await message.answer("Количество пользователей, получивших сообщение: " + str(i))
 
 
-async def admin_send_poll(message, role):
-    users = get_users(role)
+async def admin_send_poll(message, users):
     i = 0
     for user in users:
         try:
