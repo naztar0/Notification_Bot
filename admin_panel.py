@@ -28,7 +28,7 @@ buttons_types = ("Тип 1", "Тип 2", "Тип 3", "Тип 4", "Все тип�
 async def choose_type(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
         data['func'] = message.text
-    await Admin.next()
+    await Admin.next()  # type
     key = types.ReplyKeyboardMarkup(resize_keyboard=True)
     key.add(buttons_types[0], buttons_types[1])
     key.add(buttons_types[2], buttons_types[3])
@@ -41,20 +41,20 @@ async def choose_type(message: types.Message, state: FSMContext):
 async def choose_users_min_count(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
         data['type'] = message.text
-    await Admin.next()
+    await Admin.next()  # min_count
     key = types.ReplyKeyboardMarkup(resize_keyboard=True)
     key.add(cancel_button)
     if message.text == buttons_types[5]:
-        await Admin.next()
-        await message.answer(f"Отправьте {data['func']} для рассылки")
+        await Admin.next()  # data
+        await message.answer(f"Отправьте {data['func']} для рассылки", reply_markup=key)
     else:
-        await message.answer("Введите минимальное количество сообщений, которые соответствуют: " + message.text)
+        await message.answer("Введите минимальное количество сообщений, которые соответствуют " + message.text, reply_markup=key)
 
 
-async def do_func(message: types.Message, state: FSMContext):
+async def input_data(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
         data['min'] = int(message.text)
-    await Admin.next()
+    await Admin.next()  # data
     await message.answer(f"Отправьте {data['func']} для рассылки")
 
 
@@ -64,23 +64,24 @@ def get_users(users_type, min_count):
     select_all_users_query = "SELECT user_id FROM users"
     cursor.execute(select_all_users_query)
     all_users = cursor.fetchall()
+    res_users = all_users.copy()
     if min_count:
         if users_type:
             selectQuery = "SELECT ID FROM notifications WHERE user_id=(%s) AND type=(%s) HAVING COUNT(ID) >= %s"
             for user in all_users:
-                cursor.executemany(selectQuery, [(user, users_type, min_count)])
+                cursor.executemany(selectQuery, [(user[0], users_type, min_count)])
                 match = cursor.fetchone()
                 if not match:
-                    all_users.remove(user)
+                    res_users.remove(user)
         else:
             selectQuery = "SELECT ID FROM notifications WHERE user_id=(%s) HAVING COUNT(ID) >= %s"
             for user in all_users:
-                cursor.executemany(selectQuery, [(user, min_count)])
+                cursor.executemany(selectQuery, [(user[0], min_count)])
                 match = cursor.fetchone()
                 if not match:
-                    all_users.remove(user)
+                    res_users.remove(user)
     conn.close()
-    return all_users
+    return res_users
 
 
 async def choose_func(message: types.Message, state: FSMContext):
@@ -90,10 +91,12 @@ async def choose_func(message: types.Message, state: FSMContext):
         min_count = data['min']
     await state.finish()
 
-    if users_type == buttons_types[4] or users_type == buttons_types[5]:
-        users_type = None
     if users_type == buttons_types[5]:
         min_count = None
+    if users_type == buttons_types[4] or users_type == buttons_types[5]:
+        users_type = None
+    else:
+        users_type = int(users_type[4:])
 
     users = get_users(users_type, min_count)
 
@@ -113,11 +116,12 @@ async def admin_send_text(message, users):
     try: text = message.text
     except AttributeError: return
     i = 0
-    for user in users:
-        try:
-            await bot.send_message(user[0], text)
-            i += 1
-        except utils.exceptions.BotBlocked: pass
+    if users:
+        for user in users:
+            try:
+                await bot.send_message(user[0], text)
+                i += 1
+            except utils.exceptions.BotBlocked: pass
     await message.answer("Количество пользователей, получивших сообщение: " + str(i))
 
 
@@ -125,11 +129,12 @@ async def admin_send_sticker(message, users):
     try: fileID = message.sticker.file_id
     except AttributeError: return
     i = 0
-    for user in users:
-        try:
-            await bot.send_sticker(user[0], fileID)
-            i += 1
-        except utils.exceptions.BotBlocked: pass
+    if users:
+        for user in users:
+            try:
+                await bot.send_sticker(user[0], fileID)
+                i += 1
+            except utils.exceptions.BotBlocked: pass
     await message.answer("Количество пользователей, получивших сообщение: " + str(i))
 
 
@@ -138,11 +143,12 @@ async def admin_send_photo(message, users):
     except AttributeError: return
     except TypeError: return
     i = 0
-    for user in users:
-        try:
-            await bot.send_photo(user[0], fileID)
-            i += 1
-        except utils.exceptions.BotBlocked: pass
+    if users:
+        for user in users:
+            try:
+                await bot.send_photo(user[0], fileID)
+                i += 1
+            except utils.exceptions.BotBlocked: pass
     await message.answer("Количество пользователей, получивших сообщение: " + str(i))
 
 
@@ -150,19 +156,21 @@ async def admin_send_video(message, users):
     try: fileID = message.video.file_id
     except AttributeError: return
     i = 0
-    for user in users:
-        try:
-            await bot.send_video(user[0], fileID)
-            i += 1
-        except utils.exceptions.BotBlocked: pass
+    if users:
+        for user in users:
+            try:
+                await bot.send_video(user[0], fileID)
+                i += 1
+            except utils.exceptions.BotBlocked: pass
     await message.answer("Количество пользователей, получивших сообщение: " + str(i))
 
 
 async def admin_send_poll(message, users):
     i = 0
-    for user in users:
-        try:
-            await bot.forward_message(user[0], message.chat.id, message.message_id)
-            i += 1
-        except utils.exceptions.BotBlocked: pass
+    if users:
+        for user in users:
+            try:
+                await bot.forward_message(user[0], message.chat.id, message.message_id)
+                i += 1
+            except utils.exceptions.BotBlocked: pass
     await message.answer("Количество пользователей, получивших сообщение: " + str(i))

@@ -448,7 +448,7 @@ async def choose_regularity(message: types.Message, state: FSMContext):
 @dp.message_handler(commands=['admin'])
 async def message_handler(message: types.Message):
     if message.chat.id == c.admin:
-        key = types.ReplyKeyboardMarkup()
+        key = types.ReplyKeyboardMarkup(resize_keyboard=True)
         key.add(admin.buttons_funcs[0], admin.buttons_funcs[1], admin.buttons_funcs[2], admin.buttons_funcs[3], admin.buttons_funcs[4])
         key.add(cancel_button)
         await admin.Admin.func.set()
@@ -479,16 +479,14 @@ async def message_handler(message: types.Message, state: FSMContext):
         await state.finish()
         await message.answer("Отменено!", reply_markup=main_key())
         return
-    await admin.choose_users_min_count(message, state)
+    await admin.input_data(message, state)
 
 
 @dp.message_handler(state=admin.Admin.data)
 async def message_handler(message: types.Message, state: FSMContext):
-    if message.text == cancel_button:
-        await state.finish()
-        await message.answer("Отменено!", reply_markup=main_key())
-        return
+    if await cancel(message, state): return
     await admin.choose_func(message, state)
+    await message.answer("Главное меню", reply_markup=main_key())
 
 
 # ОБРАБОТКА ВСЕХ ОСТАЛЬНЫХ СООБЩЕНИЙ
