@@ -85,6 +85,7 @@ def get_users(users_type, min_count):
 
 
 async def choose_func(message: types.Message, state: FSMContext):
+    print(123)
     async with state.proxy() as data:
         func = data['func']
         users_type = data['type']

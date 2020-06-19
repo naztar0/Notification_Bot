@@ -10,6 +10,7 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 
 import admin_panel as admin
 import loop_checker
+import loop_admin_checker
 import annihilator
 
 bot = Bot(c.token)
@@ -30,6 +31,8 @@ class Form(StatesGroup):
 class Delete(StatesGroup): num = State()
 
 
+admin_button = "Создать сообщение для всех пользователей"
+admin_type_buttons = ("Сейчас", "Отложенное/Повторяющееся")
 cancel_button = "❌ Отмена"
 days = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 
@@ -46,10 +49,25 @@ def main_key():
     return key
 
 
+def admin_main_key():
+    key = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    key.add(types.KeyboardButton(main_buttons[0]))
+    key.add(types.KeyboardButton(main_buttons[1]))
+    key.add(types.KeyboardButton(admin_button))
+    return key
+
+
+async def answer_finish(message, text):
+    if not message.chat.id == c.admin:
+        await message.answer(text, reply_markup=main_key())
+    else:
+        await message.answer(text, reply_markup=admin_main_key())
+
+
 async def cancel(message, state):
     if message.text == cancel_button:
         await state.finish()
-        await message.answer("Отменено!", reply_markup=main_key())
+        await answer_finish(message, "Отменено!")
         return True
     return False
 
@@ -57,7 +75,7 @@ async def cancel(message, state):
 async def wrong_input(message, buttons, state):
     if message.text not in buttons:
         await state.finish()
-        await message.answer("Неправильный ввод!")
+        await answer_finish(message, "Неправильный ввод!")
         return True
     return False
 
@@ -75,15 +93,23 @@ def input_to_database(user, data):
 
     inputQuery = "INSERT INTO notifications (user_id, type, regularity, time, datetime, text, media) " \
                  "VALUES (%s, %s, %s, %s, %s, %s, %s)"
+    adminInputQuery = "INSERT INTO admin_notifications (type, regularity, time, datetime, text, media) " \
+                      "VALUES (%s, %s, %s, %s, %s, %s)"
     updateQuery = "UPDATE notifications SET type=(%s), regularity=(%s), time=(%s), datetime=(%s) WHERE ID=(%s)"
     conn = mysql.connector.connect(host=c.host, user=c.user, passwd=c.password, database=c.db)
     cursor = conn.cursor(buffered=True)
+
     try:
-        data['text']
+        data['admin']
     except KeyError:
-        cursor.executemany(updateQuery, [(typ, reg, data['time'], data['datetime'], data['media'])])
+        try:
+            data['text']
+        except KeyError:
+            cursor.executemany(updateQuery, [(typ, reg, data['time'], data['datetime'], data['media'])])
+        else:
+            cursor.executemany(inputQuery, [(user, typ, reg, data['time'], data['datetime'], data['text'], data['media'])])
     else:
-        cursor.executemany(inputQuery, [(user, typ, reg, data['time'], data['datetime'], data['text'], data['media'])])
+        cursor.executemany(adminInputQuery, [(typ, reg, data['time'], data['datetime'], data['text'], data['media'])])
     conn.commit()
     conn.close()
 
@@ -216,7 +242,8 @@ async def message_handler(message: types.Message):
     except utils.exceptions.BotBlocked: return
     except utils.exceptions.UserDeactivated: return
     except utils.exceptions.ChatNotFound: return
-    await message.answer("message_2", reply_markup=main_key())
+
+    await answer_finish(message, "message_2")
 
 
 @dp.message_handler(content_types=['text', 'photo'], state=Form.text)
@@ -371,7 +398,7 @@ async def choose_regularity(message: types.Message, state: FSMContext):
 
     await state.finish()
     input_to_database(message.from_user.id, data)
-    await message.answer("Напоминание успешно сохранено!", reply_markup=main_key())
+    await answer_finish(message, "Напоминание успешно сохранено!")
 
 
 @dp.message_handler(content_types=['text'], state=Form.DateTime_time)
@@ -420,7 +447,7 @@ async def choose_regularity(message: types.Message, state: FSMContext):
 
     await state.finish()
     input_to_database(message.from_user.id, data)
-    await message.answer("Напоминание успешно сохранено!", reply_markup=main_key())
+    await answer_finish(message, "Напоминание успешно сохранено!")
 
 
 @dp.message_handler(content_types=['text'], state=Delete.num)
@@ -428,7 +455,7 @@ async def choose_regularity(message: types.Message, state: FSMContext):
     if await cancel(message, state): return
     if message.text != "Удалить":
         await state.finish()
-        await message.reply("Отменено", reply_markup=main_key())
+        await answer_finish(message, "Отменено!")
         return
 
     async with state.proxy() as data:
@@ -441,25 +468,15 @@ async def choose_regularity(message: types.Message, state: FSMContext):
     cursor.execute(deleteQuery, [data])
     conn.commit()
     conn.close()
-    await message.answer("Напоминание успешно удалено!", reply_markup=main_key())
+    await answer_finish(message, "Напоминание успешно удалено!")
 
 
 # ADMIN PANEL
-@dp.message_handler(commands=['admin'])
-async def message_handler(message: types.Message):
-    if message.chat.id == c.admin:
-        key = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        key.add(admin.buttons_funcs[0], admin.buttons_funcs[1], admin.buttons_funcs[2], admin.buttons_funcs[3], admin.buttons_funcs[4])
-        key.add(cancel_button)
-        await admin.Admin.func.set()
-        await message.answer("Выберите что отправить пользователям", reply_markup=key)
-
-
 @dp.message_handler(content_types=['text'], state=admin.Admin.func)
 async def message_handler(message: types.Message, state: FSMContext):
     if message.text not in admin.buttons_funcs:
         await state.finish()
-        await message.answer("Отменено!", reply_markup=main_key())
+        await answer_finish(message, "Отменено!")
         return
     await admin.choose_type(message, state)
 
@@ -468,7 +485,7 @@ async def message_handler(message: types.Message, state: FSMContext):
 async def message_handler(message: types.Message, state: FSMContext):
     if message.text not in admin.buttons_types:
         await state.finish()
-        await message.answer("Отменено!", reply_markup=main_key())
+        await answer_finish(message, "Отменено!")
         return
     await admin.choose_users_min_count(message, state)
 
@@ -477,16 +494,16 @@ async def message_handler(message: types.Message, state: FSMContext):
 async def message_handler(message: types.Message, state: FSMContext):
     if not str(message.text).isdigit():
         await state.finish()
-        await message.answer("Отменено!", reply_markup=main_key())
+        await answer_finish(message, "Отменено!")
         return
     await admin.input_data(message, state)
 
 
-@dp.message_handler(state=admin.Admin.data)
+@dp.message_handler(content_types=['text', 'sticker', 'photo', 'video', 'poll'], state=admin.Admin.data)
 async def message_handler(message: types.Message, state: FSMContext):
     if await cancel(message, state): return
     await admin.choose_func(message, state)
-    await message.answer("Главное меню", reply_markup=main_key())
+    await answer_finish(message, "Главное меню")
 
 
 # ОБРАБОТКА ВСЕХ ОСТАЛЬНЫХ СООБЩЕНИЙ
@@ -502,7 +519,7 @@ async def message_handler(message: types.Message, state: FSMContext):
         await message.answer("Отправьте текст и/или фото напоминания", reply_markup=key)
 
     elif message.text == cancel_button:
-        await message.answer("Отменено!", reply_markup=main_key())
+        await answer_finish(message, "Отменено!")
 
     elif message.text[:2] == "/1":
         await edit_message(message, state)
@@ -510,8 +527,37 @@ async def message_handler(message: types.Message, state: FSMContext):
     elif message.text[:2] == "/2":
         await delete_message(message, state)
 
+    elif message.text == admin_button:
+        if message.chat.id == c.admin:
+            key = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            key.add(admin_type_buttons[0])
+            key.add(admin_type_buttons[1])
+            key.add(cancel_button)
+            await message.answer("Выберите вид отправки сообщения пользователям", reply_markup=key)
+
+    elif message.text == admin_type_buttons[0]:
+        if message.chat.id == c.admin:
+            key = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            key.add(admin.buttons_funcs[0], admin.buttons_funcs[1], admin.buttons_funcs[2], admin.buttons_funcs[3], admin.buttons_funcs[4])
+            key.add(cancel_button)
+            await admin.Admin.func.set()
+            await message.answer("Выберите что отправить пользователям сейчас", reply_markup=key)
+
+    elif message.text == admin_type_buttons[1]:
+        if message.chat.id == c.admin:
+            key = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            key.add(types.KeyboardButton(cancel_button))
+            await Form.text.set()
+            async with state.proxy() as data:
+                data['admin'] = None
+            await message.answer("Отправьте текст и/или фото сообщения для всех пользователей", reply_markup=key)
+
+    else:
+        await message.answer("Я тебя не понимаю")
+
 
 if __name__ == "__main__":
     dp.loop.create_task(loop_checker.loop_checker())
+    dp.loop.create_task(loop_admin_checker.loop_checker())
     dp.loop.create_task(annihilator.loop_annihilator())
     executor.start_polling(dp, skip_updates=True)
