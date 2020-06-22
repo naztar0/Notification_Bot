@@ -451,7 +451,7 @@ async def choose_regularity(message: types.Message, state: FSMContext):
         tm = data['datetime']
     try:
         nums = [int(text.split('.')[x]) for x in range(3)]
-        if nums[2] > 2040 or nums[2] < 2020:
+        if nums[2] > 2037 or nums[2] < 2020:
             raise ValueError
         dt = datetime.datetime(nums[2], nums[1], nums[0], tm.hour, tm.minute)
     except ValueError:
