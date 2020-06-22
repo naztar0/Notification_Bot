@@ -16,12 +16,13 @@ class Admin(StatesGroup):
     func = State()
     type = State()
     min_count = State()
+    users_list = State()
     data = State()
 
 
 cancel_button = "❌ Отмена"
 buttons_funcs = ("Текст", "Стикер", "Фото", "Видео", "Опрос")
-buttons_types = ("Тип 1", "Тип 2", "Тип 3", "Тип 4", "Все типы с огр.", "Все пользователи")
+buttons_types = ("Тип 1", "Тип 2", "Тип 3", "Тип 4", "Все типы с огр.", "Все пользователи", "Вручную по ID")
 
 
 # выбор типа
@@ -33,6 +34,7 @@ async def choose_type(message: types.Message, state: FSMContext):
     key.add(buttons_types[0], buttons_types[1])
     key.add(buttons_types[2], buttons_types[3])
     key.add(buttons_types[4], buttons_types[5])
+    key.add(buttons_types[6])
     key.add(cancel_button)
     await message.answer("Выберите пользователей\n\n"
                          "Тип 1 - Одноразовое\nТип 2 - Ежедневное\nТип 3 - По дням недели\nТип 4 - По числам месяца", reply_markup=key)
@@ -45,17 +47,37 @@ async def choose_users_min_count(message: types.Message, state: FSMContext):
     key = types.ReplyKeyboardMarkup(resize_keyboard=True)
     key.add(cancel_button)
     if message.text == buttons_types[5]:
+        await Admin.next()  # users_list
         await Admin.next()  # data
         await message.answer(f"Отправьте {data['func']} для рассылки", reply_markup=key)
+    elif message.text == buttons_types[6]:
+        await Admin.next()  # users_list
+        await message.answer("Отправьте список ID пользователей через пробелы", reply_markup=key)
     else:
         await message.answer("Введите минимальное количество сообщений, которые соответствуют " + message.text, reply_markup=key)
+
+
+async def separate_users_list(message: types.Message, state: FSMContext):
+    users = str(message.text).split(' ')
+    users = list(map(lambda x: [x], users))
+    async with state.proxy() as data:
+        data['users'] = users
+    await Admin.next()  # data
+    key = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    key.add(cancel_button)
+    await message.answer(f"Отправьте {data['func']} для рассылки", reply_markup=key)
 
 
 async def input_data(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
         data['min'] = int(message.text)
+    await Admin.next()  # users_list
     await Admin.next()  # data
-    await message.answer(f"Отправьте {data['func']} для рассылки")
+    key = None
+    if data['func'] == buttons_funcs[4]:
+        key = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        key.add(types.KeyboardButton("Создать опрос", request_poll=types.KeyboardButtonPollType()))
+    await message.answer(f"Отправьте {data['func']} для рассылки", reply_markup=key)
 
 
 def get_users(users_type, min_count):
@@ -85,21 +107,25 @@ def get_users(users_type, min_count):
 
 
 async def choose_func(message: types.Message, state: FSMContext):
-    print(123)
+    users, min_count = None, None
     async with state.proxy() as data:
         func = data['func']
         users_type = data['type']
-        min_count = data['min']
+        if users_type != buttons_types[6]:
+            min_count = data['min']
+        else:
+            users = data['users']
     await state.finish()
 
-    if users_type == buttons_types[5]:
-        min_count = None
-    if users_type == buttons_types[4] or users_type == buttons_types[5]:
-        users_type = None
-    else:
-        users_type = int(users_type[4:])
+    if users_type != buttons_types[6]:
+        if users_type == buttons_types[5]:
+            min_count = None
+        if users_type in (buttons_types[4], buttons_types[5]):
+            users_type = None
+        else:
+            users_type = int(users_type[4:])
 
-    users = get_users(users_type, min_count)
+        users = get_users(users_type, min_count)
 
     if func == buttons_funcs[0]:
         await admin_send_text(message, users)
@@ -117,26 +143,32 @@ async def admin_send_text(message, users):
     try: text = message.text
     except AttributeError: return
     i = 0
+    j = 0
     if users:
         for user in users:
             try:
                 await bot.send_message(user[0], text)
                 i += 1
-            except utils.exceptions.BotBlocked: pass
-    await message.answer("Количество пользователей, получивших сообщение: " + str(i))
+            except utils.exceptions.BotBlocked: j += 1
+            except utils.exceptions.UserDeactivated: j += 1
+            except utils.exceptions.ChatNotFound: j += 1
+    await message.answer(f"Получили сообщение: {i}\nНе получили сообщение: {j}")
 
 
 async def admin_send_sticker(message, users):
     try: fileID = message.sticker.file_id
     except AttributeError: return
     i = 0
+    j = 0
     if users:
         for user in users:
             try:
                 await bot.send_sticker(user[0], fileID)
                 i += 1
-            except utils.exceptions.BotBlocked: pass
-    await message.answer("Количество пользователей, получивших сообщение: " + str(i))
+            except utils.exceptions.BotBlocked: j += 1
+            except utils.exceptions.UserDeactivated: j += 1
+            except utils.exceptions.ChatNotFound: j += 1
+    await message.answer(f"Получили сообщение: {i}\nНе получили сообщение: {j}")
 
 
 async def admin_send_photo(message, users):
@@ -144,34 +176,43 @@ async def admin_send_photo(message, users):
     except AttributeError: return
     except TypeError: return
     i = 0
+    j = 0
     if users:
         for user in users:
             try:
                 await bot.send_photo(user[0], fileID)
                 i += 1
-            except utils.exceptions.BotBlocked: pass
-    await message.answer("Количество пользователей, получивших сообщение: " + str(i))
+            except utils.exceptions.BotBlocked: j += 1
+            except utils.exceptions.UserDeactivated: j += 1
+            except utils.exceptions.ChatNotFound: j += 1
+    await message.answer(f"Получили сообщение: {i}\nНе получили сообщение: {j}")
 
 
 async def admin_send_video(message, users):
     try: fileID = message.video.file_id
     except AttributeError: return
     i = 0
+    j = 0
     if users:
         for user in users:
             try:
                 await bot.send_video(user[0], fileID)
                 i += 1
-            except utils.exceptions.BotBlocked: pass
-    await message.answer("Количество пользователей, получивших сообщение: " + str(i))
+            except utils.exceptions.BotBlocked: j += 1
+            except utils.exceptions.UserDeactivated: j += 1
+            except utils.exceptions.ChatNotFound: j += 1
+    await message.answer(f"Получили сообщение: {i}\nНе получили сообщение: {j}")
 
 
 async def admin_send_poll(message, users):
     i = 0
+    j = 0
     if users:
         for user in users:
             try:
                 await bot.forward_message(user[0], message.chat.id, message.message_id)
                 i += 1
-            except utils.exceptions.BotBlocked: pass
-    await message.answer("Количество пользователей, получивших сообщение: " + str(i))
+            except utils.exceptions.BotBlocked: j += 1
+            except utils.exceptions.UserDeactivated: j += 1
+            except utils.exceptions.ChatNotFound: j += 1
+    await message.answer(f"Получили сообщение: {i}\nНе получили сообщение: {j}")

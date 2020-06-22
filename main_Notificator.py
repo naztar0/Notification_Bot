@@ -31,14 +31,14 @@ class Form(StatesGroup):
 class Delete(StatesGroup): num = State()
 
 
-admin_button = "Создать сообщение для всех пользователей"
-admin_type_buttons = ("Сейчас", "Отложенное/Повторяющееся")
 cancel_button = "❌ Отмена"
+admin_button = "Создать сообщение для всех пользователей"
 days = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 
 main_buttons = ("Посмотреть сообщения", "Создать сообщение")
 type_buttons = ("Одноразовое", "Повторяющееся")
 subtype_buttons = ("Ежедневное", "По дням недели", "По числам месяца")
+admin_type_buttons = ("Сейчас", "Отложенное/Повторяющееся")
 
 
 # главная клавиатура
@@ -49,6 +49,7 @@ def main_key():
     return key
 
 
+# клавиатура админа
 def admin_main_key():
     key = types.ReplyKeyboardMarkup(resize_keyboard=True)
     key.add(types.KeyboardButton(main_buttons[0]))
@@ -64,6 +65,7 @@ async def answer_finish(message, text):
         await message.answer(text, reply_markup=admin_main_key())
 
 
+# отмена действий при отмене пользователем
 async def cancel(message, state):
     if message.text == cancel_button:
         await state.finish()
@@ -72,6 +74,7 @@ async def cancel(message, state):
     return False
 
 
+# отмена действий при неправильном вводе
 async def wrong_input(message, buttons, state):
     if message.text not in buttons:
         await state.finish()
@@ -80,6 +83,7 @@ async def wrong_input(message, buttons, state):
     return False
 
 
+# занесение в БД данных или их апдейт
 def input_to_database(user, data):
     typ, reg = data['type'], data['reg']
     if typ == type_buttons[0]: typ = 1
@@ -114,6 +118,7 @@ def input_to_database(user, data):
     conn.close()
 
 
+# отображение уведомлений
 def view_message(result, one=False):
     string = []
     if one: string = ""
@@ -152,6 +157,7 @@ def view_message(result, one=False):
     return string
 
 
+# просмотр всех уведомлений (кроме админовских)
 async def view_all_messages(message):
     conn = mysql.connector.connect(host=c.host, user=c.user, passwd=c.password, database=c.db)
     cursor = conn.cursor(buffered=True)
@@ -176,6 +182,7 @@ async def view_all_messages(message):
     await message.answer(''.join(piece), parse_mode="Markdown")
 
 
+# выбор уведомления
 def select_message(message):
     num = message.text[2:]
     conn = mysql.connector.connect(host=c.host, user=c.user, passwd=c.password, database=c.db)
@@ -187,6 +194,7 @@ def select_message(message):
     return result
 
 
+# редактирование уведомления
 async def edit_message(message, state):
     num = message.text[2:]
     result = select_message(message)
@@ -205,6 +213,7 @@ async def edit_message(message, state):
     await message.answer(string, reply_markup=key, parse_mode="Markdown")
 
 
+# удаление уведомления
 async def delete_message(message, state):
     num = message.text[2:]
     result = select_message(message)
@@ -221,6 +230,7 @@ async def delete_message(message, state):
     await message.answer(string, parse_mode="Markdown", reply_markup=key)
 
 
+# команда `start`
 @dp.message_handler(commands=['start'])
 async def message_handler(message: types.Message):
     # сброс всех пользовательских уведомлений, если он были
@@ -246,6 +256,7 @@ async def message_handler(message: types.Message):
     await answer_finish(message, "message_2")
 
 
+# принимает текст или фото для создания уведомления
 @dp.message_handler(content_types=['text', 'photo'], state=Form.text)
 async def choose_regularity(message: types.Message, state: FSMContext):
     if await cancel(message, state): return
@@ -280,6 +291,7 @@ async def choose_regularity(message: types.Message, state: FSMContext):
     await message.answer("Выберите тип сообщения", reply_markup=key)
 
 
+# принимает тип уведомления
 @dp.message_handler(content_types=['text'], state=Form.type)
 async def choose_type(message: types.Message, state: FSMContext):
     if await cancel(message, state): return
@@ -305,6 +317,7 @@ async def choose_type(message: types.Message, state: FSMContext):
         await message.answer("Выберите подтип сообщения", reply_markup=key)
 
 
+# принимает подтип уведомления
 @dp.message_handler(content_types=['text'], state=Form.subtype)
 async def choose_subtype(message: types.Message, state: FSMContext):
     if await cancel(message, state): return
@@ -331,6 +344,7 @@ async def choose_subtype(message: types.Message, state: FSMContext):
         await message.answer("Введите числа месяца через запятую\n_Например:_ `3, 7, 30`\n_Например:_ `21`", parse_mode="Markdown", reply_markup=key)
 
 
+# принимает регулярность отсылки уведомления
 @dp.message_handler(content_types=['text'], state=Form.regularity)
 async def choose_regularity(message: types.Message, state: FSMContext):
     if await cancel(message, state): return
@@ -378,6 +392,7 @@ async def choose_regularity(message: types.Message, state: FSMContext):
         await message.answer("Введите время отправки сообщения\n_Например:_ `12:00`", reply_markup=key, parse_mode="Markdown")
 
 
+# принимает время уведомления
 @dp.message_handler(content_types=['text'], state=Form.Time)
 async def choose_regularity(message: types.Message, state: FSMContext):
     if await cancel(message, state): return
@@ -401,6 +416,7 @@ async def choose_regularity(message: types.Message, state: FSMContext):
     await answer_finish(message, "Напоминание успешно сохранено!")
 
 
+# принимает время для одиночного уведомления
 @dp.message_handler(content_types=['text'], state=Form.DateTime_time)
 async def choose_regularity(message: types.Message, state: FSMContext):
     if await cancel(message, state): return
@@ -425,6 +441,7 @@ async def choose_regularity(message: types.Message, state: FSMContext):
     await message.answer("Введите дату отправки сообщения в формате `дд.мм.гггг`\n\n_Например_: `17.09.2020`", parse_mode="Markdown", reply_markup=key)
 
 
+# принимает дату для одиночного уведомления
 @dp.message_handler(content_types=['text'], state=Form.DateTime_date)
 async def choose_regularity(message: types.Message, state: FSMContext):
     if await cancel(message, state): return
@@ -434,6 +451,8 @@ async def choose_regularity(message: types.Message, state: FSMContext):
         tm = data['datetime']
     try:
         nums = [int(text.split('.')[x]) for x in range(3)]
+        if nums[2] > 2040 or nums[2] < 2020:
+            raise ValueError
         dt = datetime.datetime(nums[2], nums[1], nums[0], tm.hour, tm.minute)
     except ValueError:
         await message.reply("Дата недействительна!")
@@ -450,6 +469,7 @@ async def choose_regularity(message: types.Message, state: FSMContext):
     await answer_finish(message, "Напоминание успешно сохранено!")
 
 
+# принимает подтверждение удаления уведомления
 @dp.message_handler(content_types=['text'], state=Delete.num)
 async def choose_regularity(message: types.Message, state: FSMContext):
     if await cancel(message, state): return
@@ -497,6 +517,12 @@ async def message_handler(message: types.Message, state: FSMContext):
         await answer_finish(message, "Отменено!")
         return
     await admin.input_data(message, state)
+
+
+@dp.message_handler(content_types=['text'], state=admin.Admin.users_list)
+async def message_handler(message: types.Message, state: FSMContext):
+    if await cancel(message, state): return
+    await admin.separate_users_list(message, state)
 
 
 @dp.message_handler(content_types=['text', 'sticker', 'photo', 'video', 'poll'], state=admin.Admin.data)
